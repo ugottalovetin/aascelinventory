@@ -5,14 +5,16 @@ declare(strict_types=1);
 $activePage = isset($activePage) && is_string($activePage) ? $activePage : 'dashboard';
 $title = isset($title) && is_string($title) ? $title : 'Restaurant Inventory';
 $content = isset($content) && is_string($content) ? $content : '';
+$cssVersion = (string) @filemtime(__DIR__ . '/../assets/css/app.css');
+$jsVersion = (string) @filemtime(__DIR__ . '/../assets/js/app.js');
 
 $dashboardClasses = $activePage === 'dashboard'
-    ? 'border border-cyan-300/40 bg-cyan-400/10 text-cyan-100'
-    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white';
+    ? 'border border-brand-300/35 bg-brand-200/75 text-brand-500 shadow-sm'
+    : 'text-slate-700 hover:bg-brand-200/50 hover:text-brand-500';
 
 $formClasses = $activePage === 'form'
-    ? 'border border-cyan-300/40 bg-cyan-400/10 text-cyan-100'
-    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white';
+    ? 'border border-brand-300/35 bg-brand-200/75 text-brand-500 shadow-sm'
+    : 'text-slate-700 hover:bg-brand-200/50 hover:text-brand-500';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -28,6 +30,15 @@ $formClasses = $activePage === 'form'
         tailwind.config = {
             theme: {
                 extend: {
+                    colors: {
+                        brand: {
+                            100: '#fcfff6',
+                            200: '#f5d96e',
+                            300: '#dc551d',
+                            400: '#a42310',
+                            500: '#400c0c',
+                        }
+                    },
                     fontFamily: {
                         display: ['Sora', 'ui-sans-serif', 'sans-serif'],
                     },
@@ -35,16 +46,20 @@ $formClasses = $activePage === 'form'
             },
         };
     </script>
-    <link rel="stylesheet" href="assets/css/app.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= htmlspecialchars($cssVersion, ENT_QUOTES, 'UTF-8') ?>">
 </head>
-<body class="inventory-bg min-h-screen font-display text-slate-100 antialiased">
+<body
+    class="inventory-bg min-h-screen font-display text-slate-800 antialiased"
+    style="background:#fcfff6 !important;"
+    data-page="<?= htmlspecialchars($activePage, ENT_QUOTES, 'UTF-8') ?>"
+>
     <div class="pointer-events-none fixed inset-0 soft-grid opacity-30"></div>
 
     <div class="relative min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
-        <aside class="panel-surface border-b border-slate-700/80 p-6 lg:border-b-0 lg:border-r">
-            <p class="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-200/80">Stock Hub</p>
-            <h1 class="mt-3 text-2xl font-semibold text-white">Restaurant Inventory</h1>
-            <p class="mt-2 text-sm text-slate-300">Native PHP mini-framework dashboard.</p>
+        <aside class="panel-surface border-b border-brand-200 p-6 lg:border-b-0 lg:border-r">
+            <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-300">Chick-n-Dip</p>
+            <h1 class="mt-3 text-2xl font-semibold text-brand-500">System Inventory</h1>
+            <p class="mt-2 text-sm text-slate-600">Manage your restaurant items.</p>
 
             <nav class="mt-8 space-y-2">
                 <a
@@ -67,18 +82,8 @@ $formClasses = $activePage === 'form'
         </main>
     </div>
 
-    <div id="butterfly-cursor" class="cursor-butterfly" aria-hidden="true">
-        <svg viewBox="0 0 96 96" role="presentation" focusable="false">
-            <path d="M48 50C48 32 30 18 12 20C14 39 24 53 48 56Z" fill="#34d399"></path>
-            <path d="M48 50C48 32 66 18 84 20C82 39 72 53 48 56Z" fill="#22d3ee"></path>
-            <path d="M48 48C48 64 34 78 16 76C18 60 26 50 48 46Z" fill="#60a5fa"></path>
-            <path d="M48 48C48 64 62 78 80 76C78 60 70 50 48 46Z" fill="#38bdf8"></path>
-            <line x1="48" y1="26" x2="48" y2="70" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round"></line>
-            <circle cx="48" cy="22" r="4" fill="#e2e8f0"></circle>
-        </svg>
-    </div>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" referrerpolicy="no-referrer"></script>
-    <script src="assets/js/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" referrerpolicy="no-referrer"></script>
+    <script src="assets/js/app.js?v=<?= htmlspecialchars($jsVersion, ENT_QUOTES, 'UTF-8') ?>"></script>
 </body>
 </html>

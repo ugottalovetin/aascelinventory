@@ -68,6 +68,10 @@ class App
             $this->saveInventoryItem();
         });
 
+        $this->router->post('delete', function (): void {
+            $this->deleteInventoryItem();
+        });
+
         $this->router->setNotFound(function (): void {
             $this->renderNotFound();
         });
@@ -80,6 +84,7 @@ class App
             'activePage' => 'dashboard',
             'items' => $this->dataStore->all(),
             'stats' => $this->dataStore->getStats(),
+            'analytics' => $this->dataStore->getAnalytics(),
             'successMessage' => $this->session->getFlash('success'),
             'errorMessage' => $this->session->getFlash('error'),
         ]);
@@ -193,6 +198,31 @@ class App
                 : 'Inventory item added successfully.'
         );
 
+        $this->redirect('index.php?page=dashboard');
+    }
+
+    private function deleteInventoryItem(): void
+    {
+        $idValue = $_POST['id'] ?? '';
+        $itemId = filter_var(
+            $idValue,
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1]]
+        );
+
+        if ($itemId === false) {
+            $this->session->setFlash('error', 'Invalid item selected for removal.');
+            $this->redirect('index.php?page=dashboard');
+        }
+
+        $isDeleted = $this->dataStore->delete((int) $itemId);
+
+        if (!$isDeleted) {
+            $this->session->setFlash('error', 'Unable to remove item. It may not exist anymore.');
+            $this->redirect('index.php?page=dashboard');
+        }
+
+        $this->session->setFlash('success', 'Inventory item removed successfully.');
         $this->redirect('index.php?page=dashboard');
     }
 
