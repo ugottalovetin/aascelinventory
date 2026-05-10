@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Inventory</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            100: '#fcfff6',
+                            200: '#f5d96e',
+                            300: '#dc551d',
+                            400: '#a42310',
+                            500: '#400c0c',
+                        }
+                    },
+                    fontFamily: {
+                        display: ['Sora', 'ui-sans-serif', 'sans-serif'],
+                    },
+                },
+            },
+        };
+    </script>
+    <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body
+    class="inventory-bg min-h-screen font-display text-slate-800 antialiased"
+    style="background:#fcfff6 !important;"
+    id="app-body"
+    data-page="dashboard"
+>
+    <div class="pointer-events-none fixed inset-0 soft-grid opacity-30"></div>
+
+    <div class="relative min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
+        <aside class="panel-surface border-b border-brand-200 p-6 lg:border-b-0 lg:border-r">
+            <p class="text-xs font-semibold uppercase tracking-[0.32em] text-brand-300">Chick-n-Dip</p>
+            <h1 class="mt-3 text-2xl font-semibold text-brand-500">System Inventory</h1>
+            <p class="mt-2 text-sm text-slate-600">Manage your restaurant items.</p>
+
+            <nav class="mt-8 space-y-2">
+                <a
+                    href="?page=dashboard"
+                    data-nav="dashboard"
+                    class="block rounded-xl px-4 py-3 text-sm font-semibold transition"
+                >
+                    Inventory Dashboard
+                </a>
+                <a
+                    href="?page=inventory-form"
+                    data-nav="form"
+                    class="block rounded-xl px-4 py-3 text-sm font-semibold transition"
+                >
+                    Add Inventory Item
+                </a>
+            </nav>
+        </aside>
+
+        <main class="px-5 py-6 sm:px-8 sm:py-8 lg:px-10 lg:py-10" id="main-content">
+            <div class="py-10 text-center text-slate-400 text-sm">Loading&hellip;</div>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" referrerpolicy="no-referrer"></script>
+    <script>
+    (function () {
+        var flashMessage = null;
+        var chartInstance = null;
+
+        var NAV_ACTIVE   = 'block rounded-xl px-4 py-3 text-sm font-semibold transition border border-brand-300/35 bg-brand-200/75 text-brand-500 shadow-sm';
+        var NAV_INACTIVE = 'block rounded-xl px-4 py-3 text-sm font-semibold transition text-slate-700 hover:bg-brand-200/50 hover:text-brand-500';
+
+        // ---- Helpers ----
+        function esc(str) {
+            return String(str == null ? '' : str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function fmt(num, dec) {
+            dec = dec == null ? 2 : dec;
+            return Number(num).toLocaleString('en-US', {
+                minimumFractionDigits: dec,
+                maximumFractionDigits: dec
+            });
+        }
+
+        // ---- Routing ----
+        function getParams() {
+            var p = new URLSearchParams(location.search);
+            return { page: p.get('page') || 'dashboard', id: p.get('id') };
+        }
+
+        function navigate(page, extra, message) {
+            flashMessage = message || null;
+            var params = new URLSearchParams({ page: page });
+            if (extra) {
+                Object.keys(extra).forEach(function (k) { params.set(k, extra[k]); });
+            }
+            history.pushState({}, '', '?' + params.toString());
+            render();
+        }
+
+        window.navigate = navigate;
+
+        // Intercept sidebar link clicks for client-side navigation
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest('a[data-nav]');
+            if (!a) return;
+            e.preventDefault();
+            var page = a.getAttribute('href').replace('?page=', '');
+            navigate(page);
+        });
+
+        window.addEventListener('popstate', render);
+
+        // ---- API ----
+        function apiFetch(method, path, body) {
+            var opts = { method: method, headers: {} };
+            if (body) {
+                opts.headers['Content-Type'] = 'application/json';
+                opts.body = JSON.stringify(body);
+            }
+            return fetch(path, opts).then(function (res) {
+                return res.json().catch(function () { return {}; }).then(function (data) {
+                    return { ok: res.ok, status: res.status, data: data };
+                });
+            });
+        }
+
+        // ---- Main render ----
+        function render() {
+            var params = getParams();
+            var page = params.page;
+            var id = params.id;
+            var main = document.getElementById('main-content');
+            var body = document.getElementById('app-body');
+
+            // Update nav active state
+            document.querySelectorAll('[data-nav]').forEach(function (a) {
+                var isActive = a.dataset.nav === page ||
+                    (a.dataset.nav === 'form' && (page === 'inventory-form' || page === 'edit'));
+                a.className = isActive ? NAV_ACTIVE : NAV_INACTIVE;
+            });
+
+            body.dataset.page = page;
+            main.innerHTML = '<div class="py-10 text-center text-slate-400 text-sm">Loading&hellip;</div>';
+
+            var msg = flashMessage;
+            flashMessage = null;
+
+            if (page === 'dashboard') {
+                document.title = 'Inventory Dashboard';
+                apiFetch('GET', '/api/items').then(function (r) {
+                    if (!r.ok) throw new Error('Failed');
+                    main.innerHTML = renderDashboard(r.data, msg);
+                    initDashboard(r.data.analytics ? r.data.analytics.category_breakdown || [] : []);
+                }).catch(function () {
+                    main.innerHTML = '<div class="py-10 text-center text-rose-600 text-sm">Failed to load inventory data. Please refresh.</div>';
+                });
+            } else if (page === 'inventory-form') {
+                document.title = 'Add Inventory Item';
+                apiFetch('GET', '/api/items').then(function (r) {
+                    if (!r.ok) throw new Error('Failed');
+                    main.innerHTML = renderForm(null, r.data.categories, r.data.units, {}, {});
+                    attachFormHandler(null);
+                }).catch(function () {
+                    main.innerHTML = '<div class="py-10 text-center text-rose-600 text-sm">Failed to load form. Please refresh.</div>';
+                });
+            } else if (page === 'edit' && id) {
+                document.title = 'Edit Inventory Item';
+                apiFetch('GET', '/api/items/' + id).then(function (r) {
+                    if (!r.ok) {
+                        navigate('dashboard', {}, { type: 'error', text: 'Item not found.' });
+                        return;
+                    }
+                    var item = r.data.item;
+                    main.innerHTML = renderForm(item, r.data.categories, r.data.units, {
+                        name: item.name,
+                        category: item.category,
+                        stock_level: String(item.stock_level),
+                        unit: item.unit,
+                        price: Number(item.price).toFixed(2),
+                    }, {});
+                    attachFormHandler(parseInt(id, 10));
+                }).catch(function () {
+                    main.innerHTML = '<div class="py-10 text-center text-rose-600 text-sm">Failed to load item. Please refresh.</div>';
+                });
+            } else {
+                document.title = 'Page Not Found';
+                main.innerHTML = render404();
+            }
+        }
+
+        // ---- Dashboard ----
+        function renderDashboard(data, msg) {
+            var itemsList     = data.items || [];
+            var stats         = data.stats || {};
+            var analytics     = data.analytics || {};
+            var total_items   = stats.total_items || 0;
+            var low_stock     = stats.low_stock || 0;
+            var inv_value     = stats.inventory_value || 0;
+            var stock_units   = analytics.total_stock_units || 0;
+            var avg_price     = analytics.average_price || 0;
+            var dist_cats     = analytics.distinct_categories || 0;
+            var high_val      = analytics.high_value_items || 0;
+            var top_cat       = analytics.top_category || 'N/A';
+            var top_item      = analytics.top_item_name || 'N/A';
+            var top_val       = analytics.top_item_value || 0;
+            var cat_breakdown = analytics.category_breakdown || [];
+            var topCatValue   = cat_breakdown.length > 0 ? cat_breakdown[0].value_total : 0;
+
+            var msgHtml = '';
+            if (msg && msg.type === 'success') {
+                msgHtml = '<div class="mb-5 rounded-xl border border-emerald-500/40 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">' + esc(msg.text) + '</div>';
+            } else if (msg && msg.type === 'error') {
+                msgHtml = '<div class="mb-5 rounded-xl border border-rose-500/50 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">' + esc(msg.text) + '</div>';
+            }
+
+            var rowsHtml = itemsList.length === 0
+                ? '<tr><td class="px-3 py-5 text-slate-500 text-center" colspan="7">No inventory items found.</td></tr>'
+                : itemsList.map(function (item) {
+                    var isLow = item.stock_level <= 10;
+                    return '<tr class="table-row-item ' + (isLow ? 'bg-brand-200/20' : 'hover:bg-slate-50') + ' transition-colors">'
+                        + '<td class="px-3 py-3 font-medium text-slate-600">' + item.id + '</td>'
+                        + '<td class="px-3 py-3 font-semibold text-brand-500">' + esc(item.name) + '</td>'
+                        + '<td class="px-3 py-3 text-slate-600">' + esc(item.category) + '</td>'
+                        + '<td class="px-3 py-3 ' + (isLow ? 'font-bold text-brand-400' : '') + '">' + item.stock_level + '</td>'
+                        + '<td class="px-3 py-3 text-slate-600">' + esc(item.unit) + '</td>'
+                        + '<td class="px-3 py-3 text-slate-700">&#8369;' + fmt(item.price) + '</td>'
+                        + '<td class="px-3 py-3"><div class="flex flex-wrap items-center gap-2">'
+                        + '<button onclick="navigate(\'edit\',{id:' + item.id + '})" class="inline-flex rounded-lg border border-brand-300 px-3 py-1.5 text-xs font-semibold text-brand-400 transition hover:bg-brand-300 hover:text-white">Edit</button>'
+                        + '<button onclick="deleteItem(' + item.id + ')" class="inline-flex rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-500 hover:text-white">Remove</button>'
+                        + '</div></td></tr>';
+                }).join('');
+
+            var barsHtml = cat_breakdown.slice(0, 5).map(function (cat) {
+                var pct = topCatValue > 0 ? Math.min(100, (cat.value_total / topCatValue) * 100) : 0;
+                return '<div>'
+                    + '<div class="mb-1 flex items-center justify-between text-xs text-slate-600">'
+                    + '<span class="font-semibold text-slate-700">' + esc(cat.category) + '</span>'
+                    + '<span>' + cat.item_count + ' items, ' + cat.stock_total + ' stock, &#8369;' + fmt(cat.value_total) + '</span>'
+                    + '</div>'
+                    + '<div class="h-2.5 rounded-full bg-slate-100">'
+                    + '<div class="h-2.5 rounded-full bg-brand-300 transition-all" style="width:' + pct.toFixed(2) + '%;"></div>'
+                    + '</div></div>';
+            }).join('');
+
+            var switcherBtns = cat_breakdown.length > 0
+                ? '<div class="flex flex-wrap items-center gap-2">'
+                    + '<button type="button" data-analytics-view="current" class="analytics-switch-btn rounded-full border border-brand-300 bg-brand-300 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition">Current</button>'
+                    + '<button type="button" data-analytics-view="graph" class="analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500">Graph</button>'
+                    + '<button type="button" data-analytics-view="column" class="analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500">Column</button>'
+                    + '<button type="button" data-analytics-view="pie" class="analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500">Pie</button>'
+                    + '<button type="button" data-analytics-view="line" class="analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500">Line</button>'
+                    + '<button type="button" data-analytics-view="bar" class="analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500">Bar</button>'
+                    + '</div>'
+                : '';
+
+            var analyticsContent = cat_breakdown.length === 0
+                ? '<p class="text-sm text-slate-500">No analytics available yet. Add inventory items to see trends.</p>'
+                : '<div id="analytics-current-view" class="space-y-3">' + barsHtml + '</div>'
+                    + '<div id="analytics-chart-view" class="hidden rounded-xl border border-slate-100 bg-white/60 p-3">'
+                    + '<div class="h-[340px]"><canvas id="analytics-chart-canvas"></canvas></div></div>';
+
+            return ''
+                + '<header class="dashboard-reveal mb-7 flex flex-wrap items-end justify-between gap-3">'
+                +   '<div>'
+                +     '<p class="text-sm uppercase tracking-[0.28em] text-brand-400">Control Center</p>'
+                +     '<h2 class="mt-2 text-3xl font-semibold text-brand-500">Inventory Dashboard</h2>'
+                +   '</div>'
+                +   '<button onclick="navigate(\'inventory-form\')" class="inline-flex items-center rounded-xl bg-brand-300 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-300/40 transition hover:bg-brand-400">Add New Item</button>'
+                + '</header>'
+                + msgHtml
+                + '<section class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Total Items</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-500">' + total_items + '</p>'
+                +   '</article>'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Low Stock Alert</p>'
+                +     '<p class="mt-3 text-3xl font-semibold ' + (low_stock > 0 ? 'text-brand-400' : 'text-emerald-600') + '">' + low_stock + '</p>'
+                +   '</article>'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5 sm:col-span-2 xl:col-span-1">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Inventory Value</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-400">&#8369;' + fmt(inv_value) + '</p>'
+                +   '</article>'
+                + '</section>'
+                + '<section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Total Stock Units</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-500">' + fmt(stock_units, 0) + '</p>'
+                +   '</article>'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Average Unit Price</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-400">&#8369;' + fmt(avg_price) + '</p>'
+                +   '</article>'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">Categories</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-500">' + dist_cats + '</p>'
+                +   '</article>'
+                +   '<article class="dashboard-card panel-surface rounded-2xl border border-slate-200 p-5">'
+                +     '<p class="text-xs uppercase tracking-[0.26em] text-slate-500">High Value SKUs</p>'
+                +     '<p class="mt-3 text-3xl font-semibold text-brand-500">' + high_val + '</p>'
+                +   '</article>'
+                + '</section>'
+                + '<section id="inventory-analytics-panel" class="dashboard-card panel-surface mb-6 rounded-2xl border border-slate-200 p-4 sm:p-6">'
+                +   '<div class="mb-4 flex flex-wrap items-start justify-between gap-3">'
+                +     '<div>'
+                +       '<h3 class="text-lg font-semibold text-brand-500">Inventory Analytics</h3>'
+                +       '<p class="text-sm text-slate-500">Top category: <span class="font-semibold text-brand-400">' + esc(top_cat) + '</span>'
+                +       ' | Top item: <span class="font-semibold text-brand-400">' + esc(top_item) + '</span> (&#8369;' + fmt(top_val) + ')</p>'
+                +     '</div>'
+                +     switcherBtns
+                +   '</div>'
+                +   analyticsContent
+                + '</section>'
+                + '<section class="dashboard-table panel-surface rounded-2xl border border-slate-200 p-4 sm:p-6">'
+                +   '<div class="mb-4 flex flex-wrap items-center justify-between gap-2">'
+                +     '<h3 class="text-lg font-semibold text-brand-500">Current Inventory</h3>'
+                +     '<p class="text-sm text-slate-500">Scrollable list of all product lines</p>'
+                +   '</div>'
+                +   '<div class="max-h-[460px] overflow-auto rounded-xl border border-slate-100">'
+                +     '<table class="min-w-full divide-y divide-slate-200 text-sm">'
+                +       '<thead class="sticky top-0 z-10 bg-white">'
+                +         '<tr class="text-left text-xs uppercase tracking-[0.18em] text-slate-500">'
+                +           '<th class="px-3 py-3">ID</th>'
+                +           '<th class="px-3 py-3">Product</th>'
+                +           '<th class="px-3 py-3">Category</th>'
+                +           '<th class="px-3 py-3">Stock</th>'
+                +           '<th class="px-3 py-3">Unit</th>'
+                +           '<th class="px-3 py-3">Price</th>'
+                +           '<th class="px-3 py-3">Action</th>'
+                +         '</tr>'
+                +       '</thead>'
+                +       '<tbody class="divide-y divide-slate-100 text-slate-700">' + rowsHtml + '</tbody>'
+                +     '</table>'
+                +   '</div>'
+                + '</section>';
+        }
+
+        // ---- Form ----
+        function renderForm(item, categories, units, formData, errors) {
+            var isEdit = item != null;
+            categories = categories || [];
+            units = units || [];
+            formData = formData || {};
+            errors = errors || {};
+
+            function errHtml(field) {
+                return errors[field]
+                    ? '<p class="mb-2 text-sm font-semibold text-rose-600">' + esc(errors[field]) + '</p>'
+                    : '';
+            }
+
+            var catOptions = categories.map(function (c) {
+                return '<option value="' + esc(c) + '"' + (c === (formData.category || '') ? ' selected' : '') + '>' + esc(c) + '</option>';
+            }).join('');
+
+            var unitOptions = units.map(function (u) {
+                return '<option value="' + esc(u) + '"' + (u === (formData.unit || '') ? ' selected' : '') + '>' + esc(u) + '</option>';
+            }).join('');
+
+            return ''
+                + '<header class="mb-7 dashboard-reveal">'
+                +   '<p class="text-sm uppercase tracking-[0.28em] text-brand-400">Inventory Entry</p>'
+                +   '<h2 class="mt-2 text-3xl font-semibold text-brand-500">' + (isEdit ? 'Edit Inventory Item' : 'Add Inventory Item') + '</h2>'
+                +   '<p class="mt-2 text-sm text-slate-500">All fields are validated before the item is stored.</p>'
+                + '</header>'
+                + '<section class="dashboard-reveal panel-surface rounded-2xl border border-slate-200 p-5 sm:p-7">'
+                +   '<form id="inventory-form" class="space-y-5" novalidate>'
+                +   (isEdit ? '<input type="hidden" name="id" value="' + item.id + '">' : '')
+                +   '<div>'
+                +     errHtml('name')
+                +     '<label for="name" class="mb-2 block text-sm font-semibold text-slate-700">Product Name</label>'
+                +     '<input id="name" name="name" type="text" value="' + esc(formData.name || '') + '" '
+                +       'class="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-300/30" '
+                +       'placeholder="Example: Olive Oil">'
+                +   '</div>'
+                +   '<div class="grid gap-5 md:grid-cols-2">'
+                +     '<div>'
+                +       errHtml('category')
+                +       '<label for="category" class="mb-2 block text-sm font-semibold text-slate-700">Category</label>'
+                +       '<select id="category" name="category" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-300/30">' + catOptions + '</select>'
+                +     '</div>'
+                +     '<div>'
+                +       errHtml('unit')
+                +       '<label for="unit" class="mb-2 block text-sm font-semibold text-slate-700">Unit</label>'
+                +       '<select id="unit" name="unit" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-300/30">' + unitOptions + '</select>'
+                +     '</div>'
+                +   '</div>'
+                +   '<div class="grid gap-5 md:grid-cols-2">'
+                +     '<div>'
+                +       errHtml('stock_level')
+                +       '<label for="stock_level" class="mb-2 block text-sm font-semibold text-slate-700">Stock Level</label>'
+                +       '<input id="stock_level" name="stock_level" type="number" min="0" step="1" value="' + esc(formData.stock_level || '0') + '" '
+                +         'class="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-300/30" '
+                +         'placeholder="0">'
+                +     '</div>'
+                +     '<div>'
+                +       errHtml('price')
+                +       '<label for="price" class="mb-2 block text-sm font-semibold text-slate-700">Price (&#8369;)</label>'
+                +       '<input id="price" name="price" type="text" value="' + esc(formData.price || '0.00') + '" '
+                +         'class="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-800 outline-none transition focus:border-brand-300 focus:ring-2 focus:ring-brand-300/30" '
+                +         'placeholder="0.00">'
+                +     '</div>'
+                +   '</div>'
+                +   '<div class="flex flex-wrap items-center gap-3 pt-2">'
+                +     '<button type="submit" class="rounded-xl bg-brand-300 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-300/40 transition hover:bg-brand-400">'
+                +       (isEdit ? 'Update Item' : 'Save Item')
+                +     '</button>'
+                +     '<button type="button" onclick="navigate(\'dashboard\')" class="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800">Back to Dashboard</button>'
+                +   '</div>'
+                +   '</form>'
+                + '</section>';
+        }
+
+        // ---- 404 ----
+        function render404() {
+            return ''
+                + '<section class="panel-surface mx-auto mt-10 max-w-xl rounded-2xl border border-slate-200 p-8 text-center shadow-sm">'
+                +   '<p class="text-xs uppercase tracking-[0.28em] text-brand-400">404</p>'
+                +   '<h2 class="mt-3 text-3xl font-semibold text-brand-500">Page Not Found</h2>'
+                +   '<p class="mt-3 text-slate-500">The requested route does not exist.</p>'
+                +   '<button onclick="navigate(\'dashboard\')" class="mt-6 inline-flex rounded-xl bg-brand-300 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-400">Return to Dashboard</button>'
+                + '</section>';
+        }
+
+        // ---- Dashboard animations + chart switcher ----
+        function initDashboard(categoryBreakdown) {
+            if (typeof gsap !== 'undefined') {
+                var tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+                if (document.querySelector('.dashboard-reveal')) {
+                    tl.fromTo('.dashboard-reveal', { y: 24, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.45, stagger: 0.08 }, 0);
+                }
+                if (document.querySelector('.dashboard-card')) {
+                    tl.fromTo('.dashboard-card', { y: 44, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.55, stagger: 0.1 }, 0.08);
+                }
+                if (document.querySelector('.dashboard-table')) {
+                    tl.fromTo('.dashboard-table', { y: 36, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.5 }, 0.22);
+                }
+                if (document.querySelector('.table-row-item')) {
+                    tl.fromTo('.table-row-item', { x: -28, autoAlpha: 0 }, { x: 0, autoAlpha: 1, duration: 0.4, stagger: 0.05, ease: 'power2.out' }, 0.35);
+                }
+            }
+
+            var panel = document.getElementById('inventory-analytics-panel');
+            if (!panel) return;
+
+            var buttons     = panel.querySelectorAll('.analytics-switch-btn');
+            var currentView = document.getElementById('analytics-current-view');
+            var chartView   = document.getElementById('analytics-chart-view');
+            var chartCanvas = document.getElementById('analytics-chart-canvas');
+            if (!currentView || buttons.length === 0) return;
+
+            var points     = categoryBreakdown;
+            var labels     = points.map(function (p) { return p.category; });
+            var valueData  = points.map(function (p) { return p.value_total; });
+            var stockData  = points.map(function (p) { return p.stock_total; });
+            var palette    = ['#dc551d', '#a42310', '#f5d96e', '#400c0c', '#e97d4a', '#f1b649'];
+            var hasChart   = !!chartCanvas && typeof Chart !== 'undefined' && points.length > 0;
+
+            function setActive(view) {
+                buttons.forEach(function (b) {
+                    var active = b.dataset.analyticsView === view;
+                    b.className = active
+                        ? 'analytics-switch-btn rounded-full border border-brand-300 bg-brand-300 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition'
+                        : 'analytics-switch-btn rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-500';
+                });
+            }
+
+            function destroyChart() {
+                if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+            }
+
+            function showCurrent() {
+                setActive('current');
+                currentView.classList.remove('hidden');
+                if (chartView) chartView.classList.add('hidden');
+                destroyChart();
+            }
+
+            function showChart(view) {
+                if (!hasChart || !chartView || !chartCanvas) { showCurrent(); return; }
+                setActive(view);
+                currentView.classList.add('hidden');
+                chartView.classList.remove('hidden');
+                destroyChart();
+
+                var commonPlugins = { legend: { labels: { color: '#475569', font: { family: 'Sora' } } } };
+                var scales = {
+                    x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.18)' } },
+                    y: { beginAtZero: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.18)' } }
+                };
+                var cfg;
+
+                if (view === 'column') {
+                    cfg = { type: 'bar', data: { labels: labels, datasets: [{ label: 'Inventory Value (PHP)', data: valueData, backgroundColor: 'rgba(220,85,29,0.82)', borderColor: '#a42310', borderWidth: 1, borderRadius: 8 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: commonPlugins, scales: scales } };
+                } else if (view === 'bar') {
+                    cfg = { type: 'bar', data: { labels: labels, datasets: [{ label: 'Inventory Value (PHP)', data: valueData, backgroundColor: 'rgba(164,35,16,0.8)', borderColor: '#400c0c', borderWidth: 1, borderRadius: 8 }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: commonPlugins, scales: scales } };
+                } else if (view === 'line') {
+                    cfg = { type: 'line', data: { labels: labels, datasets: [{ label: 'Inventory Value (PHP)', data: valueData, borderColor: '#a42310', backgroundColor: 'rgba(220,85,29,0.16)', pointBackgroundColor: '#dc551d', pointRadius: 4, tension: 0.35, fill: true }] }, options: { responsive: true, maintainAspectRatio: false, plugins: commonPlugins, scales: scales } };
+                } else if (view === 'pie') {
+                    cfg = { type: 'pie', data: { labels: labels, datasets: [{ label: 'Inventory Value (PHP)', data: valueData, backgroundColor: palette, borderColor: '#ffffff', borderWidth: 2 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: commonPlugins } };
+                } else {
+                    cfg = { type: 'radar', data: { labels: labels, datasets: [{ label: 'Inventory Value (PHP)', data: valueData, borderColor: '#a42310', backgroundColor: 'rgba(220,85,29,0.18)', pointBackgroundColor: '#dc551d', pointBorderColor: '#ffffff' }, { label: 'Stock Units', data: stockData, borderColor: '#400c0c', backgroundColor: 'rgba(64,12,12,0.08)', pointBackgroundColor: '#400c0c', pointBorderColor: '#ffffff' }] }, options: { responsive: true, maintainAspectRatio: false, plugins: commonPlugins, scales: { r: { angleLines: { color: 'rgba(148,163,184,0.2)' }, grid: { color: 'rgba(148,163,184,0.2)' }, pointLabels: { color: '#475569' }, ticks: { color: '#64748b', backdropColor: 'transparent' } } } } };
+                }
+
+                chartInstance = new Chart(chartCanvas, cfg);
+            }
+
+            buttons.forEach(function (b) {
+                b.addEventListener('click', function () {
+                    var view = b.dataset.analyticsView;
+                    if (view === 'current') showCurrent(); else showChart(view);
+                });
+            });
+
+            showCurrent();
+        }
+
+        // ---- Form handler ----
+        function attachFormHandler(itemId) {
+            var form = document.getElementById('inventory-form');
+            if (!form) return;
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var fd = new FormData(form);
+                var body = {
+                    name:        fd.get('name'),
+                    category:    fd.get('category'),
+                    stock_level: fd.get('stock_level'),
+                    unit:        fd.get('unit'),
+                    price:       fd.get('price'),
+                };
+                var btn = form.querySelector('[type="submit"]');
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+
+                var method = itemId ? 'PUT' : 'POST';
+                var path   = itemId ? '/api/items/' + itemId : '/api/items';
+
+                apiFetch(method, path, body).then(function (r) {
+                    if (!r.ok && r.data && r.data.errors) {
+                        // Re-render form with validation errors
+                        return apiFetch('GET', '/api/items').then(function (listR) {
+                            var main = document.getElementById('main-content');
+                            main.innerHTML = renderForm(
+                                itemId ? { id: itemId } : null,
+                                listR.data.categories,
+                                listR.data.units,
+                                body,
+                                r.data.errors
+                            );
+                            attachFormHandler(itemId);
+                        });
+                    }
+                    if (!r.ok) throw new Error('Save failed');
+                    navigate('dashboard', {}, {
+                        type: 'success',
+                        text: itemId ? 'Inventory item updated successfully.' : 'Inventory item added successfully.'
+                    });
+                }).catch(function () {
+                    navigate('dashboard', {}, { type: 'error', text: 'Failed to save inventory item.' });
+                });
+            });
+        }
+
+        // ---- Delete ----
+        window.deleteItem = function (id) {
+            if (!confirm('Remove this item from inventory?')) return;
+            apiFetch('DELETE', '/api/items/' + id).then(function (r) {
+                if (!r.ok) throw new Error('Delete failed');
+                navigate('dashboard', {}, { type: 'success', text: 'Inventory item removed successfully.' });
+            }).catch(function () {
+                navigate('dashboard', {}, { type: 'error', text: 'Failed to remove inventory item.' });
+            });
+        };
+
+        // ---- Boot ----
+        render();
+    })();
+    </script>
+</body>
+</html>
