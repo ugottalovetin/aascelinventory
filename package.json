@@ -1,0 +1,14 @@
+{
+  "name": "aascelinventory",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@netlify/database": "*",
+    "@netlify/functions": "*",
+    "drizzle-orm": "beta"
+  },
+  "devDependencies": {
+    "drizzle-kit": "beta",
+    "typescript": "^5"
+  }
+}
