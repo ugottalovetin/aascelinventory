@@ -8,7 +8,7 @@
 
 This document explains what the system does, how it works, and how it was implemented, written for readers who are not developers.
 
-## What the system does
+## What the system does 
 
 The system provides the following capabilities:
 
