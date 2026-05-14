@@ -52,23 +52,21 @@ class DataStore
     public function getCategories(): array
     {
         return [
-            'Produce',
-            'Dairy',
-            'Meat',
-            'Condiments',
-            'Beverages',
-            'Dry Goods',
+            'Frozen Goods',
+            'Packaging Supplies',
+            'Wet Goods',
+            'Poultry',
+            'Cooking Supplies',
         ];
     }
 
     public function getUnits(): array
     {
         return [
-            'kg',
-            'liter',
-            'pcs',
-            'bottle',
-            'pack',
+            'Unit',
+            'Grams',
+            'Gallon',
+            'Cans',
         ];
     }
 
